@@ -5,16 +5,22 @@
 
 import axios from 'axios'
 
-// 创建axios实例
+const getBaseURL = () => {
+  if (import.meta.env.VITE_API_URL) {
+    return import.meta.env.VITE_API_URL
+  }
+  return '/api'
+}
+
 const api = axios.create({
-  baseURL: '/api',
-  timeout: 600000, // 10分钟超时，支持大文件上传
+  baseURL: getBaseURL(),
+  timeout: 600000,
   headers: {
     'Content-Type': 'application/json',
   },
-  // 允许大文件上传
   maxBodyLength: Infinity,
   maxContentLength: Infinity,
+  withCredentials: true,
 })
 
 // 请求拦截器
