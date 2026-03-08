@@ -1,0 +1,163 @@
+/* 苹果风格全局样式 */
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* 基础样式 */
+* {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  @apply bg-apple-bg text-apple-dark font-sans;
+  min-height: 100vh;
+}
+
+/* 玻璃态效果 */
+.glass {
+  @apply bg-white/80 backdrop-blur-apple;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+}
+
+.glass-dark {
+  @apply bg-black/40 backdrop-blur-apple;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+/* 苹果风格按钮 */
+.btn-apple {
+  @apply px-6 py-3 rounded-xl font-medium transition-all duration-200;
+  @apply bg-apple-blue text-white;
+  @apply hover:bg-blue-600 hover:shadow-lg;
+  @apply active:scale-95;
+}
+
+.btn-apple-secondary {
+  @apply px-6 py-3 rounded-xl font-medium transition-all duration-200;
+  @apply bg-gray-100 text-gray-700;
+  @apply hover:bg-gray-200;
+  @apply active:scale-95;
+}
+
+.btn-apple-danger {
+  @apply px-6 py-3 rounded-xl font-medium transition-all duration-200;
+  @apply bg-apple-red text-white;
+  @apply hover:bg-red-600;
+  @apply active:scale-95;
+}
+
+/* 苹果风格卡片 */
+.card-apple {
+  @apply bg-white/80 backdrop-blur-apple rounded-2xl;
+  @apply shadow-apple;
+  @apply border border-white/50;
+  @apply transition-all duration-300;
+}
+
+.card-apple:hover {
+  @apply shadow-apple-lg;
+  transform: translateY(-2px);
+}
+
+/* 输入框样式 */
+.input-apple {
+  @apply w-full px-4 py-3 rounded-xl;
+  @apply bg-gray-50 border border-gray-200;
+  @apply focus:outline-none focus:ring-2 focus:ring-apple-blue/50 focus:border-apple-blue;
+  @apply transition-all duration-200;
+}
+
+/* 滚动条样式 */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  @apply bg-transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  @apply bg-gray-300 rounded-full;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  @apply bg-gray-400;
+}
+
+/* 选中效果 */
+::selection {
+  @apply bg-apple-blue/30;
+}
+
+/* 文件图标颜色 */
+.file-icon-image { @apply text-blue-500; }
+.file-icon-video { @apply text-purple-500; }
+.file-icon-audio { @apply text-pink-500; }
+.file-icon-document { @apply text-blue-600; }
+.file-icon-spreadsheet { @apply text-green-500; }
+.file-icon-presentation { @apply text-orange-500; }
+.file-icon-archive { @apply text-yellow-500; }
+.file-icon-code { @apply text-gray-600; }
+.file-icon-default { @apply text-gray-400; }
+
+/* 动画工具类 */
+.animate-enter {
+  animation: slideUp 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.animate-fade {
+  animation: fadeIn 0.3s ease-out forwards;
+}
+
+/* 拖拽上传区域 */
+.drop-zone {
+  @apply border-2 border-dashed border-gray-300 rounded-2xl;
+  @apply transition-all duration-300;
+}
+
+.drop-zone.drag-over {
+  @apply border-apple-blue bg-blue-50;
+}
+
+/* 加载动画 */
+.loading-spinner {
+  @apply w-5 h-5 border-2 border-white border-t-transparent rounded-full;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* 进度条 */
+.progress-apple {
+  @apply h-2 bg-gray-200 rounded-full overflow-hidden;
+}
+
+.progress-apple-bar {
+  @apply h-full bg-apple-blue rounded-full transition-all duration-300;
+}
+
+/* 工具提示 */
+.tooltip {
+  @apply relative;
+}
+
+.tooltip::after {
+  content: attr(data-tooltip);
+  @apply absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-1;
+  @apply bg-gray-800 text-white text-sm rounded-lg;
+  @apply opacity-0 invisible transition-all duration-200;
+  @apply whitespace-nowrap;
+}
+
+.tooltip:hover::after {
+  @apply opacity-100 visible;
+}

@@ -1,0 +1,424 @@
+// 数据库配置
+// 使用SQLite作为数据库，针对大规模使用优化
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// 用户模型
+model User {
+  id        Int      @id @default(autoincrement())
+  username  String   @unique
+  email     String   @unique
+  password  String
+  role      String   @default("USER")  // USER, ADMIN, SUPER_ADMIN
+  avatar    String?  // 用户头像
+  storageUsed BigInt @default(0)  // 已用存储空间(字节)
+  storageLimit BigInt @default(10737418240)  // 存储空间限制(默认10GB)
+  isActive  Boolean  @default(true)
+  lastLoginAt DateTime?  // 最后登录时间
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // 关联
+  files     File[]
+  folders   Folder[]
+  shares    Share[]  // 用户创建的分享
+  operationLogs OperationLog[]  // 操作日志
+  chunks    FileChunk[]  // 用户上传的文件分片
+  tags      Tag[]  // 用户创建的标签
+  
+  // 管理员访问授权相关
+  adminAccessConsents  AdminAccessConsent[]  // 用户授权给管理员的记录
+  adminAccesses        AdminAccessConsent[]  @relation("AdminAccess")  // 管理员访问他人的授权
+  adminAuditLogs       AdminAuditLog[]  // 管理员操作日志
+  sensitiveCodes       SensitiveOperationCode[]  // 敏感操作确认码
+  accessRequests       AdminAccessRequest[]  // 用户收到的访问请求
+  madeAccessRequests   AdminAccessRequest[]  @relation("AdminAccessRequest")  // 管理员发出的访问请求
+
+  @@index([email])
+  @@index([role])
+  @@index([isActive])
+  @@index([createdAt])
+  @@map("users")
+}
+
+// 文件模型
+model File {
+  id          Int      @id @default(autoincrement())
+  name        String
+  originalName String
+  path        String   // 存储路径
+  size        BigInt   // 文件大小(字节)
+  mimeType    String   // 文件类型
+  extension   String?  // 文件扩展名
+  
+  // 文件去重 - 使用内容哈希
+  contentHash String?  // 文件内容MD5哈希值
+  refCount    Int      @default(1)  // 引用计数，用于去重
+  
+  // 加密相关字段
+  isEncrypted Boolean  @default(false)  // 是否加密
+  encryptionKey String?  // 加密密钥(存储密钥的哈希或标识)
+  iv          String?    // 初始化向量
+  
+  // 分片上传相关
+  isChunked   Boolean  @default(false)  // 是否分片上传
+  totalChunks Int      @default(0)      // 总分片数
+  
+  // 收藏/星标功能
+  isStarred   Boolean  @default(false)  // 是否收藏
+  starredAt   DateTime?  // 收藏时间
+  
+  // 文件描述
+  description String?  // 文件描述
+  
+  // 外键关联
+  userId      Int
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  folderId    Int?
+  folder      Folder?  @relation(fields: [folderId], references: [id], onDelete: SetNull)
+  
+  // 软删除标记
+  isDeleted   Boolean  @default(false)
+  deletedAt   DateTime?  // 删除时间
+  
+  // 回收站相关
+  deletedBy   Int?     // 删除者ID(区分用户自己删除和管理员删除)
+  originalPath String? // 原始路径(恢复时使用)
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // 关联的分享
+  shares      Share[]
+  
+  // 关联的分片
+  chunks      FileChunk[]
+  
+  // 文件标签关联
+  tags        FileTag[]
+  
+  // 文件版本历史
+  versions    FileVersion[]
+
+  @@index([userId])
+  @@index([userId, isDeleted])
+  @@index([userId, folderId])
+  @@index([userId, isDeleted, createdAt])
+  @@index([folderId])
+  @@index([mimeType])
+  @@index([createdAt])
+  @@index([isDeleted, deletedAt])
+  @@index([contentHash])  // 用于文件去重
+  @@index([userId, isStarred])  // 用于收藏查询
+  @@map("files")
+}
+
+// 文件分片模型 - 用于断点续传
+model FileChunk {
+  id          Int      @id @default(autoincrement())
+  chunkIndex  Int      // 分片索引
+  chunkHash   String   // 分片MD5哈希
+  chunkSize   Int      // 分片大小
+  path        String   // 分片存储路径
+  
+  // 外键关联
+  fileId      Int?     // 关联的文件(合并后设置)
+  file        File?    @relation(fields: [fileId], references: [id], onDelete: Cascade)
+  
+  userId      Int      // 上传用户
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  // 分片上传会话
+  uploadId    String   // 上传会话ID
+  
+  createdAt   DateTime @default(now())
+  
+  @@index([uploadId, chunkIndex])
+  @@index([userId])
+  @@index([fileId])
+  @@index([uploadId])
+  @@map("file_chunks")
+}
+
+// 文件夹模型
+model Folder {
+  id          Int      @id @default(autoincrement())
+  name        String
+  
+  // 收藏功能
+  isStarred   Boolean  @default(false)
+  starredAt   DateTime?
+  
+  // 外键关联
+  userId      Int
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  // 自关联 - 父文件夹
+  parentId    Int?
+  parent      Folder?  @relation("FolderHierarchy", fields: [parentId], references: [id], onDelete: Cascade)
+  children    Folder[] @relation("FolderHierarchy")
+  
+  // 关联的文件
+  files       File[]
+  
+  // 软删除标记
+  isDeleted   Boolean  @default(false)
+  deletedAt   DateTime?  // 删除时间
+  
+  // 回收站相关
+  deletedBy   Int?     // 删除者ID
+  originalParentId Int? // 原始父文件夹ID(恢复时使用)
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([userId])
+  @@index([userId, isDeleted])
+  @@index([userId, parentId])
+  @@index([userId, isDeleted, createdAt])
+  @@index([parentId])
+  @@index([isDeleted, deletedAt])
+  @@index([userId, isStarred])  // 用于收藏查询
+  @@map("folders")
+}
+
+// 分享模型
+model Share {
+  id            String   @id @default(uuid())  // 分享链接ID
+  fileId        Int
+  file          File     @relation(fields: [fileId], references: [id], onDelete: Cascade)
+  userId        Int
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  // 分享设置
+  password      String?  // 访问密码(可选)
+  expireAt      DateTime? // 过期时间(可选)
+  maxDownloads  Int?     // 最大下载次数(可选)
+  downloadCount Int      @default(0) // 已下载次数
+  
+  // 状态
+  isActive      Boolean  @default(true) // 是否有效
+  
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([userId])
+  @@index([fileId])
+  @@index([isActive, expireAt])
+  @@index([createdAt])
+  @@map("shares")
+}
+
+// 操作日志模型
+model OperationLog {
+  id          Int      @id @default(autoincrement())
+  userId      Int
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  action      String   // 操作类型: UPLOAD, DELETE, DOWNLOAD, SHARE, LOGIN, LOGOUT, etc.
+  targetType  String?  // 操作对象类型: FILE, FOLDER, USER, etc.
+  targetId    Int?     // 操作对象ID
+  details     String?  // 详情JSON
+  
+  // 请求信息
+  ip          String   // IP地址
+  userAgent   String?  // 用户代理
+  
+  createdAt   DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@index([action, createdAt])
+  @@index([createdAt])
+  @@index([ip])
+  @@map("operation_logs")
+}
+
+// 系统配置模型
+model SystemConfig {
+  id          Int      @id @default(autoincrement())
+  key         String   @unique
+  value       String
+  description String?
+  updatedAt   DateTime @updatedAt
+  createdAt   DateTime @default(now())
+
+  @@map("system_configs")
+}
+
+// 会话管理模型
+model Session {
+  id          String   @id @default(uuid())
+  userId      Int
+  token       String   @unique
+  ip          String
+  userAgent   String?
+  isValid     Boolean  @default(true)
+  expiresAt   DateTime
+  createdAt   DateTime @default(now())
+  lastUsedAt  DateTime @updatedAt
+
+  @@index([userId])
+  @@index([token])
+  @@index([isValid, expiresAt])
+  @@index([expiresAt])
+  @@map("sessions")
+}
+
+// 标签模型
+model Tag {
+  id          Int      @id @default(autoincrement())
+  name        String
+  color       String   @default("#3B82F6")  // 标签颜色
+  userId      Int
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  // 关联的文件
+  files       FileTag[]
+  
+  @@unique([userId, name])  // 每个用户的标签名唯一
+  @@index([userId])
+  @@map("tags")
+}
+
+// 文件-标签关联模型（多对多）
+model FileTag {
+  fileId      Int
+  file        File     @relation(fields: [fileId], references: [id], onDelete: Cascade)
+  tagId       Int
+  tag         Tag      @relation(fields: [tagId], references: [id], onDelete: Cascade)
+  
+  createdAt   DateTime @default(now())
+  
+  @@id([fileId, tagId])
+  @@index([fileId])
+  @@index([tagId])
+  @@map("file_tags")
+}
+
+// 文件版本历史模型
+model FileVersion {
+  id          Int      @id @default(autoincrement())
+  fileId      Int
+  file        File     @relation(fields: [fileId], references: [id], onDelete: Cascade)
+  
+  version     Int      // 版本号
+  name        String   // 版本文件名
+  path        String   // 版本存储路径
+  size        BigInt   // 版本大小
+  contentHash String   // 内容哈希
+  
+  createdAt   DateTime @default(now())
+  
+  @@index([fileId])
+  @@index([fileId, version])
+  @@map("file_versions")
+}
+
+// 管理员访问授权模型 - 用户授权管理员查看其文件
+model AdminAccessConsent {
+  id          Int      @id @default(autoincrement())
+  userId      Int      // 被访问的用户
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  adminId     Int      // 管理员ID
+  admin       User     @relation("AdminAccess", fields: [adminId], references: [id], onDelete: Cascade)
+  
+  consentType String   // 授权类型: VIEW, DOWNLOAD, DECRYPT, ALL
+  reason      String?  // 授权原因
+  
+  expiresAt   DateTime? // 过期时间(可选)
+  isRevoked   Boolean  @default(false) // 是否已撤销
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  @@index([userId])
+  @@index([adminId])
+  @@index([userId, adminId])
+  @@index([isRevoked, expiresAt])
+  @@map("admin_access_consents")
+}
+
+// 管理员操作审计日志
+model AdminAuditLog {
+  id          Int      @id @default(autoincrement())
+  adminId     Int
+  admin       User     @relation(fields: [adminId], references: [id], onDelete: Cascade)
+  
+  action      String   // 操作类型
+  targetType  String?  // 操作对象类型
+  targetId    Int?     // 操作对象ID
+  targetUserId Int?    // 被操作用户ID
+  
+  details     String?  // 操作详情JSON
+  reason      String?  // 操作原因
+  
+  ip          String   // IP地址
+  userAgent   String?  // 用户代理
+  
+  isSensitive Boolean  @default(false) // 是否敏感操作
+  
+  createdAt   DateTime @default(now())
+  
+  @@index([adminId])
+  @@index([action])
+  @@index([targetUserId])
+  @@index([createdAt])
+  @@index([isSensitive])
+  @@map("admin_audit_logs")
+}
+
+// 敏感操作确认码
+model SensitiveOperationCode {
+  id          Int      @id @default(autoincrement())
+  adminId     Int
+  admin       User     @relation(fields: [adminId], references: [id], onDelete: Cascade)
+  
+  code        String   // 确认码
+  operation   String   // 操作类型
+  
+  expiresAt   DateTime // 过期时间
+  usedAt      DateTime? // 使用时间
+  
+  createdAt   DateTime @default(now())
+  
+  @@index([adminId, code])
+  @@index([expiresAt])
+  @@map("sensitive_operation_codes")
+}
+
+// 管理员访问请求模型 - 管理员请求访问用户文件
+model AdminAccessRequest {
+  id          Int      @id @default(autoincrement())
+  userId      Int      // 被请求的用户
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  adminId     Int      // 管理员ID
+  admin       User     @relation("AdminAccessRequest", fields: [adminId], references: [id], onDelete: Cascade)
+  
+  consentType String   // 请求类型: VIEW, DOWNLOAD, DECRYPT, ALL
+  reason      String?  // 请求原因
+  
+  expiresAt   DateTime? // 请求的过期时间
+  status      String   @default("PENDING") // PENDING, APPROVED, REJECTED
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  @@index([userId])
+  @@index([adminId])
+  @@index([status])
+  @@map("admin_access_requests")
+}
+
+// 更新File模型添加版本关联
+// 在File模型中添加: versions FileVersion[]
